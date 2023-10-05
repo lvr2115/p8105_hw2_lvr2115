@@ -1,0 +1,214 @@
+---
+title: "p8105_hw2_lvr2115"
+author: "Laura Robles-Torres"
+date: "2023-10-05"
+output: github_document
+---
+
+```{r packages, message = FALSE}
+library(tidyverse)
+library(tidyr)
+library(readxl)
+library(dbplyr)
+```
+
+# Problem 1
+## Cleaning pols-month
+
+```{r import and clean obs in pols-month.csv, message = FALSE, warning=FALSE}
+
+politician_data = 
+  read_csv("./fivethirtyeight_datasets/pols-month.csv") |>
+  separate(mon, sep="-", into = c("year", "month", "day")) |> 
+  mutate(month=month.name[as.numeric(month)]) |>
+  mutate(year = as.numeric(year)) |>
+  mutate(
+    president = recode(prez_gop, "0" = "dem", "1" = "gop", "2" = "gop")) |>
+    select(year, month, everything(), -day, -prez_gop, -prez_dem)
+```
+
+## Cleaning snp.csv
+
+```{r import and clean obs in snp.csv, message = FALSE}
+snp_data =
+  read_csv ("./fivethirtyeight_datasets/snp.csv") |>
+  separate(date, into = c("year", "month", "day")) |> 
+  arrange (year, month) |>
+  mutate(month=month.name[as.numeric(month)]) |>
+  mutate(year = as.numeric(year)) |>
+  select(year, month, everything(), -day)
+```
+
+
+## Tidy unemployment data for merging
+Switching from “wide” to “long” format; ensuring that key variables have the same name; and ensuring that key variables take the same values.
+
+```{r unemployment dataset tidying, message = FALSE}
+unemployment_data = 
+  read_csv ("./fivethirtyeight_datasets/unemployment.csv") |> 
+  rename(year = Year) |>
+  pivot_longer(
+    Jan:Dec, 
+    names_to = "month",
+    values_to = "unemployment")
+```
+
+## Join the datasets by merging snp into pols, and merging unemployment into the result.
+
+```{r merge 3 datasets}
+merged_538data = 
+  left_join(politician_data, snp_data) |>
+  left_join(x = _, y = unemployment_data)
+
+str(merged_538data)
+```
+
+The politician_data (file pols-month) has 822 observations of 9 different variables demonstrating the number of national politicians who are democratic or republican at any given time at federal and state levels of government. This dataset contains `r nrow(politician_data)` rows and `r ncol(politician_data)` columns. The 9 variables are `r ls(politician_data)`. The data spans from the years `r range(pull(politician_data, year))`. 
+
+# Problem 2 
+
+## Mr. Trashwheel data set
+```{r mr_trashwheel}
+mr_trashwheel =
+  readxl::read_excel("./202309 Trash Wheel Collection Data.xlsx", sheet = "Mr. Trash Wheel", range = "A2:N587") |>
+  janitor::clean_names(case = "snake") |>
+  drop_na(dumpster) |>
+  mutate(wheeltype = "mr_trashwheel",
+    homes_powered = ((weight_tons*500)/30))
+
+  mr_trashwheel$year = as.numeric(mr_trashwheel$year) # Convert character year variable into numeric for merging with year variable in other sets 
+  
+```
+
+## Prof. Trashwheel data set
+```{r prof_trashwheel}
+prof_trashwheel =
+  readxl::read_excel("./202309 Trash Wheel Collection Data.xlsx", sheet = "Professor Trash Wheel", range = "A2:M109") |> 
+    janitor::clean_names(case = "snake") |>
+    drop_na(dumpster) |>
+    mutate(wheeltype = "prof_trashwheel")
+
+ prof_trashwheel$year = as.numeric(prof_trashwheel$year) # Convert character year variable into numeric for merging with year variable in other sets 
+```
+
+## Gwynnda Trashwheel data set
+```{r gwynnda_trashwheel}
+gwynnda_trashwheel =
+  readxl::read_excel("./202309 Trash Wheel Collection Data.xlsx", sheet = "Gwynnda Trash Wheel", range = "A2:L159") |>
+  janitor::clean_names(case="snake") |>
+  drop_na(dumpster) |>
+  mutate(wheeltype = "gwynnda_trashwheel")
+
+ gwynnda_trashwheel$year = as.numeric(gwynnda_trashwheel$year) # Convert character year variable into numeric for merging with year variable in other sets 
+```
+
+## Merging Trashwheel data sets
+
+```{r merge trash wheel, message = FALSE}
+trashwheel_merged = bind_rows(mr_trashwheel, prof_trashwheel, gwynnda_trashwheel) |> 
+select(wheeltype= "wheeltype", everything())
+```
+
+The  final merged dataset has 845 observations of 15 different variables regarding the trash collected by 3 different machines. This dataset contains `r nrow(trashwheel_merged)` rows and `r ncol(trashwheel_merged)` columns. The 15 variables are `r ls(trashwheel_merged)`. The data spans from the years `r range(pull(trashwheel_merged, year))`. 
+
+For available data, the total weight of trash collected by Professor Trash Wheel is 
+`r subset(trashwheel_merged, wheeltype == "prof_trashwheel") |> pull(weight_tons) |> sum()` tons.
+
+The total number of cigarette butts collected by Gwynnda Trashwheel in July of 2021 is 
+`r subset(trashwheel_merged, wheeltype == "gwynnda_trashwheel" & year == 2021 & month == "July") |> pull(cigarette_butts) |> sum() |> as.integer()`.
+
+# Problem 3
+
+## Import, clean, and tidy the dataset of baseline demographics. 
+```{r mci_baseline data cleaning, message = FALSE, warning=FALSE}
+mci_baseline=
+  read_csv("./data_mci/MCI_baseline.csv", skip = 1) |> 
+  janitor::clean_names(case="snake") |>
+  mutate(
+    sex = 
+      case_match(
+        sex, 
+        1 ~ "male", 
+        0 ~ "female"), 
+    sex = as.factor(sex)) |> 
+  mutate(
+    apoe4 = 
+      case_match(
+        apoe4, 
+        1 ~ "carrier", 
+        0 ~ "non-carrier"),
+    apoe = as.factor(apoe4),
+) #recoding sex and apoe4 to be non-numeric
+
+mci_baseline$age_at_onset = as.numeric(mci_baseline$age_at_onset) # convert from character to numeric 
+
+mci_baseline_exc = 
+  filter(mci_baseline, is.na(age_at_onset) | age_at_onset > current_age)
+#excluding those who do not meet inclusion criteria 
+```
+
+I recoded the sex and apoe4 variables to be character variables instead of dummy variables with 0 and 1 values. I also converted the age_at_onset variable from character to numeric. Lastly, those whose age of MCI onset is greater than their current age are the only participants who did not have MCI at baseline and should be excluded. 
+
+## Import, clean, and tidy the dataset of amyloid measurements post-baseline. 
+```{r mci_amyloid, message = FALSE, warning = FALSE}
+mci_amyloid = 
+  read_csv("./data_mci/mci_amyloid.csv", skip = 1, na="Na") |>
+  janitor::clean_names(case="snake") |> 
+  rename(amyloid4240ratio_bl = baseline) |>
+  rename(amyloid4240ratio_2yrs= time_2) |> 
+  rename (amyloid4240ratio_4yrs= time_4) |> 
+  rename(amyloid4240ratio_6yrs= time_6) |>
+  rename(amyloid4240ratio_8yrs= time_8) |>
+  rename(id=study_id)|>
+  drop_na(amyloid4240ratio_bl)
+#renamed the variable columns 
+
+mci_amyloid$amyloid4240ratio_bl = as.numeric(mci_amyloid$amyloid4240ratio_bl) 
+mci_amyloid$amyloid4240ratio_2yrs = as.numeric(mci_amyloid$amyloid4240ratio_2yrs) 
+mci_amyloid$amyloid4240ratio_4yrs = as.numeric(mci_amyloid$amyloid4240ratio_4yrs) 
+mci_amyloid$amyloid4240ratio_6yrs = as.numeric(mci_amyloid$amyloid4240ratio_6yrs) 
+mci_amyloid$amyloid4240ratio_8yrs = as.numeric(mci_amyloid$amyloid4240ratio_8yrs) 
+# convert from character to numeric 
+```
+
+Similar cleaning was done on this dataset. I re-named the time variables to reflect the time in years and what the values of that variable represented, the amyloid 42/40 ratio value. I also excluded those who had NA as their baseline value. 
+
+The number of participants recruited at baseline is `r nrow(mci_baseline_exc)`. 
+
+The number of participants who developed MCI during the study is `r filter(mci_baseline_exc, age_at_onset != ".") |> nrow()`. 
+
+The average baseline age is `r mean(pull(mci_baseline_exc, current_age))`.
+
+The proportion of women who are APOE 4 carrier is `r scales::percent(nrow(filter(mci_baseline_exc, sex == "female" & apoe4 =="carrier")) / nrow(filter(mci_baseline_exc, sex == "female")))`.
+
+## Check whether some participants appear in only the baseline or amyloid datasets. 
+
+### These are in baseline but not in amyloid. 
+
+```{r}
+anti_join(mci_baseline_exc, mci_amyloid)
+``` 
+### These are in amyloid but not in baseline. 
+
+```{r}
+anti_join(mci_amyloid, mci_baseline_exc)
+``` 
+
+### Combining datasets, only including those that are in both datasts. 
+```{r}
+amyloid_full = 
+  full_join(mci_baseline_exc, mci_amyloid, by = c("id"))
+```
+
+There are `r nrow(amyloid_full) - nrow(mci_baseline_exc)` participants who are in the amyloid biomarker dataset but not in the baseline demographic dataset.
+There are `r nrow(amyloid_full) - nrow(mci_amyloid)` participants in the baseline demographic set but not in the amyloid biomarker dataset. 
+
+There are `r n_distinct(pull(amyloid_full, id))` participants that are in both datasets. There are `r nrow(amyloid_full)` rows and `r ncol(amyloid_full)` columns in the final merged dataset amyloid_full. The 12 variables are `r ls(amyloid_full)`. 
+
+
+## Export the result as a CSV to your data directory.
+```{r export to csv, message = FALSE}
+write.csv(amyloid_full, file='baseline_amyloid_finalmerged.csv', row.names = FALSE)
+```
+
+
